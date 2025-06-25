@@ -1,0 +1,1 @@
+timestamp,trade_id,magic_number,symbol,strategy_name,event_type,direction,lot_size,entry_price,initial_sl,initial_tp,close_price,pnl,reason_message

@@ -1,0 +1,46 @@
+{
+  "Broker": {
+    "Account": "YOUR_MT5_ACCOUNT",
+    "Password": "YOUR_MT5_PASSWORD",
+    "Server": "YOUR_MT5_SERVER"
+  },
+  "Trading": {
+    "Symbol": "XAUUSD",
+    "Timeframe": "M5",
+    "MaxOpenTrades": 1,
+    "Slippage": 20,
+    "MagicNumber": 23400
+  },
+  "Strategy": {
+    "EMAFast_Period": 21,
+    "EMASlow_Period": 50,
+    "RSI_Period": 14,
+    "RSI_Overbought": 70,
+    "RSI_Oversold": 30,
+    "ADX_Period": 14,
+    "ADX_Threshold": 25,
+    "EnableADXFilter": true,
+    "EnableCandlePatternFilter": true,
+    "EnableRSIFilter": true
+  },
+  "RiskManagement": {
+    "RiskPercentage": 2.0,
+    "RiskRewardRatio": 2.0,
+    "StopLossBufferPips": 2.0,
+    "PipValuePerLot": 1.0,
+    "PipDecimalValue": 0.01
+  },
+  "TradeManagement": {
+    "EnableBreakeven": true,
+    "EnableTrailingStop": true,
+    "TrailingStop_ActivationPips": 30,
+    "TrailingStop_DistancePips": 20
+  },
+  "CandlePatterns": {
+    "PinBar": {
+      "BodyMaxPercent": 0.3,
+      "WickMinPercent": 0.6,
+      "OppositeWickMaxPercent": 0.2
+    }
+  }
+} 
