@@ -64,19 +64,82 @@ public:
       StringReplace(date, ".", "_");
       m_logFileName = "XAU_TradingBot_" + date + ".log";
       
-      // Open file for writing (append mode)
-      m_fileHandle = FileOpen("Logs/" + m_logFileName, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ);
+      // Try to create Logs directory if it doesn't exist
+      string logsPath = "Logs";
+      if(!CreateLogDirectory(logsPath))
+      {
+         Print("Failed to create Logs directory, trying current directory");
+         m_fileHandle = FileOpen(m_logFileName, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ);
+      }
+      else
+      {
+         // Open file for writing (append mode) in Logs folder
+         m_fileHandle = FileOpen("Logs/" + m_logFileName, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ);
+      }
       
       if(m_fileHandle != INVALID_HANDLE)
       {
          FileSeek(m_fileHandle, 0, SEEK_END);
-         WriteLog(LOG_INFO, "=== XAU TRADING BOT STARTED ===");
-         WriteLog(LOG_INFO, "Version: 1.0.0");
-         WriteLog(LOG_INFO, "Symbol: " + _Symbol);
-         WriteLog(LOG_INFO, "Timeframe: " + EnumToString(_Period));
-         WriteLog(LOG_INFO, "Account: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
-         WriteLog(LOG_INFO, "===============================");
+         WriteInitialLogs();
+         Print("✅ Log file created successfully: " + m_logFileName);
       }
+      else
+      {
+         int error = GetLastError();
+         Print("❌ Failed to create log file: " + m_logFileName + " Error: " + IntegerToString(error));
+         Print("📁 Current terminal files path: ", TerminalInfoString(TERMINAL_DATA_PATH) + "\\MQL5\\Files\\");
+         
+         // Try alternative file name in current directory
+         m_logFileName = "TradingBot_" + date + ".log";
+         m_fileHandle = FileOpen(m_logFileName, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ);
+         
+         if(m_fileHandle != INVALID_HANDLE)
+         {
+            WriteInitialLogs();
+            Print("✅ Alternative log file created: " + m_logFileName);
+         }
+         else
+         {
+            Print("❌ Failed to create any log file. Logging will be console-only.");
+            m_enableFile = false;
+         }
+      }
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Create log directory if not exists                                |
+   //+------------------------------------------------------------------+
+   bool CreateLogDirectory(string dirPath)
+   {
+      // Try to create directory using folder creation
+      string testFile = dirPath + "/test.tmp";
+      int handle = FileOpen(testFile, FILE_WRITE|FILE_TXT);
+      
+      if(handle != INVALID_HANDLE)
+      {
+         FileClose(handle);
+         FileDelete(testFile);
+         return true;
+      }
+      
+      return false;
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Write initial log entries                                         |
+   //+------------------------------------------------------------------+
+   void WriteInitialLogs()
+   {
+      WriteLog(LOG_INFO, "=== XAU TRADING BOT STARTED ===");
+      WriteLog(LOG_INFO, "Version: 1.0.0");
+      WriteLog(LOG_INFO, "Symbol: " + _Symbol);
+      WriteLog(LOG_INFO, "Timeframe: " + EnumToString(_Period));
+      WriteLog(LOG_INFO, "Account: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
+      WriteLog(LOG_INFO, "Log File: " + m_logFileName);
+      WriteLog(LOG_INFO, "Files Path: " + TerminalInfoString(TERMINAL_DATA_PATH) + "\\MQL5\\Files\\");
+      WriteLog(LOG_INFO, "Logging Enabled: " + (m_enableFile ? "YES" : "NO"));
+      WriteLog(LOG_INFO, "Console Enabled: " + (m_enableConsole ? "YES" : "NO"));
+      WriteLog(LOG_INFO, "===============================");
    }
    
    //+------------------------------------------------------------------+
