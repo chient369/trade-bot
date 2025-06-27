@@ -415,40 +415,49 @@ private:
       MqlDateTime dt;
       TimeToStruct(TimeCurrent(), dt);
       
-      // Start with first day of current month
-      dt.day = 1;
-      dt.hour = 0;
-      dt.min = 0;
-      dt.sec = 0;
-      
-      datetime firstDay = StructToTime(dt);
-      
-      // Find first Friday
-      for(int i = 0; i < 7; i++)
+      // Loop to find first Friday in current or next month
+      for(int monthOffset = 0; monthOffset < 12; monthOffset++) // Max 12 months ahead
       {
-         datetime checkDay = firstDay + i * 86400;
-         TimeToStruct(checkDay, dt);
+         // Calculate target month/year
+         int targetMonth = dt.mon + monthOffset;
+         int targetYear = dt.year;
          
-         if(dt.day_of_week == 5) // Friday
+         while(targetMonth > 12)
          {
-            // If it's already passed this month, get next month's
-            if(checkDay < TimeCurrent())
-            {
-               dt.mon++;
-               if(dt.mon > 12)
-               {
-                  dt.mon = 1;
-                  dt.year++;
-               }
-               dt.day = 1;
-               return GetNextFirstFriday(); // Recursive call for next month
-            }
+            targetMonth -= 12;
+            targetYear++;
+         }
+         
+         // Set to first day of target month
+         MqlDateTime targetDt;
+         targetDt.year = targetYear;
+         targetDt.mon = targetMonth;
+         targetDt.day = 1;
+         targetDt.hour = 0;
+         targetDt.min = 0;
+         targetDt.sec = 0;
+         
+         datetime firstDay = StructToTime(targetDt);
+         
+         // Find first Friday of target month
+         for(int i = 0; i < 7; i++)
+         {
+            datetime checkDay = firstDay + i * 86400;
+            TimeToStruct(checkDay, targetDt);
             
-            return checkDay;
+            if(targetDt.day_of_week == 5) // Friday
+            {
+               // Check if this Friday is in the future
+               if(checkDay >= TimeCurrent())
+               {
+                  return checkDay;
+               }
+               break; // Found first Friday of this month, but it's in the past
+            }
          }
       }
       
-      return 0;
+      return 0; // Fallback - should not reach here
    }
 };
 
