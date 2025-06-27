@@ -11,17 +11,26 @@
 #include "Logger.mqh"
 
 //+------------------------------------------------------------------+
+//| HTTP request constants                                             |
+//+------------------------------------------------------------------+
+#define FOREX_FACTORY_API_URL "https://www.jblanked.com/news/api/forex-factory/calendar/week"
+#define HTTP_TIMEOUT         30000  // 30 seconds timeout
+
+//+------------------------------------------------------------------+
 //| News Event Structure                                               |
 //+------------------------------------------------------------------+
 struct NewsEvent
 {
    datetime          time;              // Event time
    string            currency;          // Currency affected
-   string            title;             // Event title
+   string            title;             // Event title (Name from API)
    int               impact;            // Impact level (1=Low, 2=Medium, 3=High)
    string            forecast;          // Forecast value
    string            previous;          // Previous value
    string            actual;            // Actual value (after release)
+   string            outcome;           // Outcome from API
+   string            strength;          // Strength from API
+   string            quality;           // Quality from API
 };
 
 //+------------------------------------------------------------------+
@@ -66,8 +75,8 @@ public:
          return true;
       }
       
-      // Update news if needed (every hour)
-      if(TimeCurrent() - m_lastUpdateTime > 3600)
+      // Update news if needed (configurable interval)
+      if(TimeCurrent() - m_lastUpdateTime > NewsUpdateInterval)
       {
          UpdateNewsEvents();
       }
@@ -235,20 +244,289 @@ private:
    //+------------------------------------------------------------------+
    void UpdateNewsEvents()
    {
-      // In a real implementation, this would fetch from an economic calendar API
-      // For now, we'll create some dummy events for testing
-      
       ArrayResize(m_newsEvents, 0);
       
-      // Add some example events (in production, these would come from API)
-      AddDummyNewsEvents();
+      if(UseRealNewsAPI && NewsApiKey != "")
+      {
+         // Fetch from real API
+         if(FetchNewsFromAPI())
+         {
+            LogInfo("News events updated from API. Total events: " + IntegerToString(ArraySize(m_newsEvents)));
+         }
+         else
+         {
+            LogWarning("Failed to fetch news from API, using dummy data");
+            AddDummyNewsEvents();
+         }
+      }
+      else
+      {
+         // Use dummy data for testing
+         AddDummyNewsEvents();
+         LogInfo("News events updated with dummy data. Total events: " + IntegerToString(ArraySize(m_newsEvents)));
+      }
       
       // Sort events by time
       SortEventsByTime();
       
       m_lastUpdateTime = TimeCurrent();
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Fetch news events from API                                        |
+   //+------------------------------------------------------------------+
+   bool FetchNewsFromAPI()
+   {
+      // Prepare headers
+      string headers = "Content-Type: application/json\r\n";
+      headers += "Authorization: Api-Key " + NewsApiKey + "\r\n";
       
-      LogInfo("News events updated. Total events: " + IntegerToString(ArraySize(m_newsEvents)));
+      char data[];
+      char result[];
+      string result_headers;
+      
+      LogInfo("Fetching news from API: " + FOREX_FACTORY_API_URL);
+      
+      // Make HTTP request
+      int res = WebRequest("GET", FOREX_FACTORY_API_URL, headers, HTTP_TIMEOUT, data, result, result_headers);
+      
+      if(res == -1)
+      {
+         int error = GetLastError();
+         LogError("WebRequest failed. Error: " + IntegerToString(error) + ". Make sure URL is added to allowed URLs in MT5 settings.");
+         return false;
+      }
+      
+      if(res != 200)
+      {
+         LogError("API request failed with HTTP code: " + IntegerToString(res));
+         return false;
+      }
+      
+      // Convert response to string
+      string jsonResponse = CharArrayToString(result);
+      
+      LogDebug("API Response received: " + IntegerToString(StringLen(jsonResponse)) + " characters");
+      
+      // Parse JSON response
+      return ParseNewsJSON(jsonResponse);
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Parse JSON response from API                                      |
+   //+------------------------------------------------------------------+
+   bool ParseNewsJSON(string jsonResponse)
+   {
+      if(StringLen(jsonResponse) < 10)
+      {
+         LogError("Invalid JSON response - too short");
+         return false;
+      }
+      
+      // Remove outer brackets if present
+      if(StringGetCharacter(jsonResponse, 0) == '[')
+      {
+         jsonResponse = StringSubstr(jsonResponse, 1, StringLen(jsonResponse) - 2);
+      }
+      
+      // Split by objects
+      string events[];
+      int eventCount = SplitJSONObjects(jsonResponse, events);
+      
+      LogInfo("Parsing " + IntegerToString(eventCount) + " news events from API");
+      
+      for(int i = 0; i < eventCount; i++)
+      {
+         NewsEvent event;
+         if(ParseSingleNewsEvent(events[i], event))
+         {
+            AddNewsEvent(event);
+         }
+      }
+      
+      return ArraySize(m_newsEvents) > 0;
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Parse single news event from JSON object                          |
+   //+------------------------------------------------------------------+
+   bool ParseSingleNewsEvent(string jsonObject, NewsEvent &event)
+   {
+      // Parse Name
+      event.title = ExtractJSONValue(jsonObject, "Name");
+      if(event.title == "") return false;
+      
+      // Parse Currency
+      event.currency = ExtractJSONValue(jsonObject, "Currency");
+      
+      // Parse Date and convert to datetime
+      string dateStr = ExtractJSONValue(jsonObject, "Date");
+      event.time = ParseAPIDateTime(dateStr);
+      if(event.time == 0) return false;
+      
+      // Parse numeric values
+      event.actual = ExtractJSONValue(jsonObject, "Actual");
+      event.forecast = ExtractJSONValue(jsonObject, "Forecast");
+      event.previous = ExtractJSONValue(jsonObject, "Previous");
+      
+      // Parse additional fields
+      event.outcome = ExtractJSONValue(jsonObject, "Outcome");
+      event.strength = ExtractJSONValue(jsonObject, "Strength");
+      event.quality = ExtractJSONValue(jsonObject, "Quality");
+      
+      // Determine impact level based on strength or currency
+      event.impact = DetermineImpactLevel(event);
+      
+      return true;
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Extract value from JSON object                                    |
+   //+------------------------------------------------------------------+
+   string ExtractJSONValue(string jsonObject, string key)
+   {
+      string searchKey = "\"" + key + "\":";
+      int startPos = StringFind(jsonObject, searchKey);
+      
+      if(startPos == -1) return "";
+      
+      startPos += StringLen(searchKey);
+      
+      // Skip whitespace
+      while(startPos < StringLen(jsonObject) && 
+            (StringGetCharacter(jsonObject, startPos) == ' ' || 
+             StringGetCharacter(jsonObject, startPos) == '\t'))
+      {
+         startPos++;
+      }
+      
+      // Check if value is string (starts with quote)
+      bool isString = (StringGetCharacter(jsonObject, startPos) == '"');
+      
+      if(isString)
+      {
+         startPos++; // Skip opening quote
+         int endPos = StringFind(jsonObject, "\"", startPos);
+         if(endPos == -1) return "";
+         return StringSubstr(jsonObject, startPos, endPos - startPos);
+      }
+      else
+      {
+         // Numeric value - find end (comma or closing brace)
+         int endPos = startPos;
+         while(endPos < StringLen(jsonObject))
+         {
+            ushort ch = StringGetCharacter(jsonObject, endPos);
+            if(ch == ',' || ch == '}' || ch == ' ' || ch == '\r' || ch == '\n')
+               break;
+            endPos++;
+         }
+         return StringSubstr(jsonObject, startPos, endPos - startPos);
+      }
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Split JSON array into individual objects                          |
+   //+------------------------------------------------------------------+
+   int SplitJSONObjects(string jsonArray, string &objects[])
+   {
+      ArrayResize(objects, 0);
+      
+      int count = 0;
+      int startPos = 0;
+      int braceCount = 0;
+      bool inString = false;
+      
+      for(int i = 0; i < StringLen(jsonArray); i++)
+      {
+         ushort ch = StringGetCharacter(jsonArray, i);
+         
+         if(ch == '"' && (i == 0 || StringGetCharacter(jsonArray, i-1) != '\\'))
+         {
+            inString = !inString;
+         }
+         else if(!inString)
+         {
+            if(ch == '{')
+            {
+               if(braceCount == 0) startPos = i;
+               braceCount++;
+            }
+            else if(ch == '}')
+            {
+               braceCount--;
+               if(braceCount == 0)
+               {
+                  string obj = StringSubstr(jsonArray, startPos, i - startPos + 1);
+                  ArrayResize(objects, count + 1);
+                  objects[count] = obj;
+                  count++;
+               }
+            }
+         }
+      }
+      
+      return count;
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Parse API datetime format to MQL datetime                         |
+   //+------------------------------------------------------------------+
+   datetime ParseAPIDateTime(string dateStr)
+   {
+      // Expected format: "2025.06.27 23:30:00"
+      if(StringLen(dateStr) < 19) return 0;
+      
+      // Extract components
+      string datePart = StringSubstr(dateStr, 0, 10);  // "2025.06.27"
+      string timePart = StringSubstr(dateStr, 11, 8);  // "23:30:00"
+      
+      // Parse date
+      string dateComponents[];
+      if(StringSplit(datePart, '.', dateComponents) != 3) return 0;
+      
+      // Parse time
+      string timeComponents[];
+      if(StringSplit(timePart, ':', timeComponents) != 3) return 0;
+      
+      // Build MqlDateTime structure
+      MqlDateTime dt;
+      dt.year = (int)StringToInteger(dateComponents[0]);
+      dt.mon = (int)StringToInteger(dateComponents[1]);
+      dt.day = (int)StringToInteger(dateComponents[2]);
+      dt.hour = (int)StringToInteger(timeComponents[0]);
+      dt.min = (int)StringToInteger(timeComponents[1]);
+      dt.sec = (int)StringToInteger(timeComponents[2]);
+      dt.day_of_week = 0;
+      dt.day_of_year = 0;
+      
+      return StructToTime(dt);
+   }
+   
+   //+------------------------------------------------------------------+
+   //| Determine impact level from API data                              |
+   //+------------------------------------------------------------------+
+   int DetermineImpactLevel(NewsEvent &event)
+   {
+      // Check if it's USD related (high impact for Gold)
+      if(event.currency == "USD") 
+      {
+         // Check if it's a high impact USD event
+         for(int i = 0; i < ArraySize(m_highImpactEvents); i++)
+         {
+            if(StringFind(event.title, m_highImpactEvents[i]) >= 0)
+               return 3; // High impact
+         }
+         return 2; // Medium impact for other USD events
+      }
+      
+      // Check strength indicator from API
+      if(event.strength == "High" || StringFind(event.strength, "High") >= 0)
+         return 3;
+      else if(event.strength == "Medium" || StringFind(event.strength, "Medium") >= 0)
+         return 2;
+      else
+         return 1;
    }
    
    //+------------------------------------------------------------------+

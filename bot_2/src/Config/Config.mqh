@@ -35,6 +35,9 @@ input int            FridayCloseHour = 20;              // Friday close hour (GM
 
 // == NEWS FILTER ==
 input bool           UseNewsFilter = true;              // Enable news filter
+input string         NewsApiKey = "";                   // API Key for Forex Factory news
+input bool           UseRealNewsAPI = false;            // Use real API (true) or dummy data (false)
+input int            NewsUpdateInterval = 3600;         // News update interval in seconds (1 hour)
 input int            NewsBeforeMinutes = 30;            // Pause before high impact news (minutes)
 input int            NewsAfterMinutes = 30;             // Pause after high impact news (minutes)
 input int            CloseBeforeNewsMinutes = 15;       // Close positions before news (minutes)
@@ -200,6 +203,19 @@ bool ValidateInputParameters()
       TradingEndHour < 0 || TradingEndHour > 23)
    {
       errorMsg += "Invalid trading hours. Must be between 0-23\n";
+      isValid = false;
+   }
+   
+   // Validate news API settings
+   if(UseRealNewsAPI && StringLen(NewsApiKey) < 10)
+   {
+      errorMsg += "Invalid API Key. Please provide valid Forex Factory API key when UseRealNewsAPI is enabled\n";
+      isValid = false;
+   }
+   
+   if(NewsUpdateInterval < 300) // Minimum 5 minutes
+   {
+      errorMsg += "NewsUpdateInterval too short. Minimum is 300 seconds (5 minutes)\n";
       isValid = false;
    }
    
