@@ -1,0 +1,440 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# MQL5 Trading Bot Development Rules
+
+## Code Structure và Organization
+
+### File Organization
+- **Main EA file**: `XAU_TradingBot.mq5` - Entry point chính
+- **Strategy modules**: `Strategies/` folder chứa các chiến lược riêng biệt
+- **Risk management**: `RiskManagement.mqh` - Quản lý rủi ro và position sizing
+- **Logging system**: `Logger.mqh` - Hệ thống log chi tiết
+- **Configuration**: `Config.mqh` - Cấu hình parameters
+- **Market analysis**: `MarketAnalysis.mqh` - Phân tích thị trường
+- **News filter**: `NewsFilter.mqh` - Bộ lọc tin tức
+
+### Code Style Standards
+```cpp
+// Class names: PascalCase
+class TrendFollowingStrategy
+{
+// Variables: camelCase với prefix theo type
+private:
+   double m_stopLoss;           // member variables with m_ prefix
+   bool   m_isLongTrade;        
+   int    m_magicNumber;
+
+// Constants: UPPER_CASE
+#define MAX_SPREAD_PIPS 3.0
+#define RISK_PER_TRADE  0.01
+
+// Functions: PascalCase
+bool CheckEntryConditions();
+void LogTradeEntry(string reason);
+```
+
+## Logging System Requirements
+
+### Log Categories với Priorities
+```cpp
+// Log levels theo thứ tự priority
+enum LOG_LEVEL
+{
+   LOG_ERROR = 0,    // Critical errors
+   LOG_WARNING = 1,  // Warnings
+   LOG_INFO = 2,     // General information
+   LOG_ENTRY = 3,    // Trade entry details
+   LOG_DEBUG = 4     // Debug information
+};
+```
+
+### Entry Point Logging Template
+```cpp
+void LogTradeEntry(string strategy, ENUM_ORDER_TYPE orderType, double price, double sl, double tp)
+{
+   string logMessage = StringFormat(
+      "=== TRADE ENTRY [%s] ===\n" +
+      "Time: %s\n" +
+      "Strategy: %s\n" +
+      "Type: %s\n" +
+      "Price: %.5f\n" +
+      "Stop Loss: %.5f (%.1f pips)\n" +
+      "Take Profit: %.5f (%.1f pips)\n" +
+      "Risk: %.2f%%\n" +
+      "Lot Size: %.2f\n" +
+      "Market State: %s\n" +
+      "Entry Signals:\n%s\n" +
+      "==================",
+      strategy,
+      TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS),
+      strategy,
+      EnumToString(orderType),
+      price,
+      sl, MathAbs(price - sl) / _Point / 10,
+      tp, MathAbs(tp - price) / _Point / 10,
+      RISK_PER_TRADE * 100,
+      CalculateLotSize(sl, price),
+      GetMarketState(),
+      GetEntrySignalsDetail()
+   );
+   
+   WriteLog(LOG_ENTRY, logMessage);
+}
+```
+
+### Market Analysis Logging
+```cpp
+void LogMarketAnalysis()
+{
+   string analysis = StringFormat(
+      "=== MARKET ANALYSIS H4 ===\n" +
+      "EMA 200: %.5f (Price %s EMA)\n" +
+      "ADX: %.2f (%s)\n" +
+      "ATR: %.5f (%.1f pips)\n" +
+      "Market State: %s\n" +
+      "Trend Strength: %s\n" +
+      "News Events: %s\n" +
+      "=======================",
+      GetEMA200(),
+      (Close[0] > GetEMA200()) ? "ABOVE" : "BELOW",
+      GetADX(),
+      GetADXState(),
+      GetATR(), GetATR() / _Point / 10,
+      GetMarketState(),
+      GetTrendStrength(),
+      GetUpcomingNews()
+   );
+   
+   WriteLog(LOG_INFO, analysis);
+}
+```
+
+## Strategy Implementation Standards
+
+### Module Template Structure
+```cpp
+class TrendFollowingStrategy
+{
+private:
+   // Strategy parameters
+   double m_fastEMA;
+   double m_slowEMA;
+   double m_rsiLevel;
+   
+   // Market analysis
+   bool   m_isTrendingMarket;
+   string m_marketState;
+   
+public:
+   // Constructor với logging
+   TrendFollowingStrategy()
+   {
+      WriteLog(LOG_INFO, "TrendFollowingStrategy initialized");
+      InitializeIndicators();
+   }
+   
+   // Main strategy logic
+   bool CheckLongEntry()
+   {
+      // Chi tiết từng điều kiện
+      bool emaCondition = CheckEMACrossover();
+      bool rsiCondition = CheckRSICondition();
+      bool volumeCondition = CheckVolumeConfirmation();
+      bool priceActionCondition = CheckPriceAction();
+      
+      // Log chi tiết từng điều kiện
+      LogEntryConditions("LONG", emaCondition, rsiCondition, volumeCondition, priceActionCondition);
+      
+      return emaCondition && rsiCondition && volumeCondition && priceActionCondition;
+   }
+   
+   // Entry conditions logging
+   void LogEntryConditions(string direction, bool ema, bool rsi, bool volume, bool priceAction)
+   {
+      string conditions = StringFormat(
+         "Entry Conditions Check [%s]:\n" +
+         "✓ EMA Crossover: %s\n" +
+         "✓ RSI Condition: %s\n" +
+         "✓ Volume Confirmation: %s\n" +
+         "✓ Price Action: %s\n" +
+         "Overall Signal: %s",
+         direction,
+         ema ? "PASS" : "FAIL",
+         rsi ? "PASS" : "FAIL", 
+         volume ? "PASS" : "FAIL",
+         priceAction ? "PASS" : "FAIL",
+         (ema && rsi && volume && priceAction) ? "VALID" : "INVALID"
+      );
+      
+      WriteLog(LOG_ENTRY, conditions);
+   }
+};
+```
+
+## Risk Management Logging
+
+### Position Sizing Calculation
+```cpp
+double CalculateLotSize(double stopLoss, double entryPrice)
+{
+   double riskAmount = AccountEquity() * RISK_PER_TRADE;
+   double pipValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double stopLossPips = MathAbs(entryPrice - stopLoss) / _Point / 10;
+   double lotSize = riskAmount / (stopLossPips * pipValue);
+   
+   // Log calculation details
+   string logMsg = StringFormat(
+      "Position Sizing Calculation:\n" +
+      "Account Equity: $%.2f\n" +
+      "Risk Amount: $%.2f (%.1f%%)\n" +
+      "Stop Loss Distance: %.1f pips\n" +
+      "Pip Value: $%.2f\n" +
+      "Calculated Lot Size: %.2f\n" +
+      "Final Lot Size: %.2f",
+      AccountEquity(),
+      riskAmount, RISK_PER_TRADE * 100,
+      stopLossPips,
+      pipValue,
+      lotSize,
+      NormalizeDouble(lotSize, 2)
+   );
+   
+   WriteLog(LOG_INFO, logMsg);
+   
+   return NormalizeDouble(lotSize, 2);
+}
+```
+
+## Backtesting Evaluation Points
+
+### Performance Metrics Logging
+```cpp
+class BacktestAnalyzer
+{
+private:
+   int    m_totalTrades;
+   int    m_winningTrades;
+   double m_totalProfit;
+   double m_maxDrawdown;
+   double m_initialBalance;
+   
+public:
+   void LogTradeResult(double profit, bool isWin)
+   {
+      m_totalTrades++;
+      if(isWin) m_winningTrades++;
+      m_totalProfit += profit;
+      
+      // Calculate current metrics
+      double winRate = (double)m_winningTrades / m_totalTrades * 100;
+      double profitFactor = CalculateProfitFactor();
+      double currentDrawdown = CalculateDrawdown();
+      
+      string result = StringFormat(
+         "=== TRADE RESULT #%d ===\n" +
+         "P&L: $%.2f (%s)\n" +
+         "Running Total: $%.2f\n" +
+         "Win Rate: %.1f%% (%d/%d)\n" +
+         "Profit Factor: %.2f\n" +
+         "Current Drawdown: %.2f%%\n" +
+         "Max Drawdown: %.2f%%\n" +
+         "ROI: %.2f%%\n" +
+         "========================",
+         m_totalTrades,
+         profit, isWin ? "WIN" : "LOSS",
+         m_totalProfit,
+         winRate, m_winningTrades, m_totalTrades,
+         profitFactor,
+         currentDrawdown,
+         m_maxDrawdown,
+         (m_totalProfit / m_initialBalance) * 100
+      );
+      
+      WriteLog(LOG_INFO, result);
+   }
+   
+   void LogDailySummary()
+   {
+      string summary = StringFormat(
+         "=== DAILY SUMMARY ===\n" +
+         "Date: %s\n" +
+         "Trades Today: %d\n" +
+         "P&L Today: $%.2f\n" +
+         "Strategy Performance:\n" +
+         "- Trend Following: %s\n" +
+         "- Range Trading: %s\n" +
+         "Market Conditions: %s\n" +
+         "News Events Impact: %s\n" +
+         "==================",
+         TimeToString(TimeCurrent(), TIME_DATE),
+         GetTradesToday(),
+         GetProfitToday(),
+         GetStrategyPerformance("TrendFollowing"),
+         GetStrategyPerformance("RangeTrading"),
+         GetMarketConditionsSummary(),
+         GetNewsImpactSummary()
+      );
+      
+      WriteLog(LOG_INFO, summary);
+   }
+};
+```
+
+## Error Handling và Debugging
+
+### Error Logging Template
+```cpp
+void HandleTradingError(int errorCode, string operation)
+{
+   string errorMsg = StringFormat(
+      "TRADING ERROR:\n" +
+      "Operation: %s\n" +
+      "Error Code: %d\n" +
+      "Description: %s\n" +
+      "Time: %s\n" +
+      "Symbol: %s\n" +
+      "Account Balance: $%.2f\n" +
+      "Free Margin: $%.2f",
+      operation,
+      errorCode,
+      ErrorDescription(errorCode),
+      TimeToString(TimeCurrent()),
+      _Symbol,
+      AccountInfoDouble(ACCOUNT_BALANCE),
+      AccountInfoDouble(ACCOUNT_FREEMARGIN)
+   );
+   
+   WriteLog(LOG_ERROR, errorMsg);
+   
+   // Send alert nếu là critical error
+   if(IsCriticalError(errorCode))
+   {
+      SendNotification("Critical Trading Error: " + IntegerToString(errorCode));
+   }
+}
+```
+
+## News Filter Implementation
+
+### News Event Logging
+```cpp
+void LogNewsFilter()
+{
+   string newsStatus = StringFormat(
+      "=== NEWS FILTER STATUS ===\n" +
+      "Current Time: %s\n" +
+      "Next High Impact Event: %s\n" +
+      "Time Until Event: %d minutes\n" +
+      "Trading Allowed: %s\n" +
+      "Reason: %s\n" +
+      "========================",
+      TimeToString(TimeCurrent()),
+      GetNextHighImpactEvent(),
+      GetMinutesUntilNextEvent(),
+      IsTradingAllowed() ? "YES" : "NO",
+      GetNewsFilterReason()
+   );
+   
+   WriteLog(LOG_INFO, newsStatus);
+}
+```
+
+## Testing và Validation
+
+### Unit Test Template
+```cpp
+// Test individual strategy components
+bool TestEMACrossover()
+{
+   WriteLog(LOG_DEBUG, "Testing EMA Crossover Logic");
+   
+   // Setup test data
+   SetupTestData();
+   
+   // Test conditions
+   bool result = CheckEMACrossover();
+   
+   string testResult = StringFormat(
+      "EMA Crossover Test: %s\n" +
+      "Fast EMA: %.5f\n" +
+      "Slow EMA: %.5f\n" +
+      "Expected: %s, Got: %s",
+      result ? "PASS" : "FAIL",
+      GetFastEMA(),
+      GetSlowEMA(),
+      "true",
+      result ? "true" : "false"
+   );
+   
+   WriteLog(LOG_DEBUG, testResult);
+   return result;
+}
+```
+
+## Performance Optimization
+
+### Execution Time Logging
+```cpp
+void LogExecutionTime(string function, uint startTime)
+{
+   uint executionTime = GetTickCount() - startTime;
+   
+   if(executionTime > 100) // Log nếu > 100ms
+   {
+      string timeLog = StringFormat(
+         "PERFORMANCE WARNING:\n" +
+         "Function: %s\n" +
+         "Execution Time: %d ms\n" +
+         "Threshold: 100 ms",
+         function,
+         executionTime
+      );
+      
+      WriteLog(LOG_WARNING, timeLog);
+   }
+}
+```
+
+## Comments và Documentation Standards
+
+### Vietnamese Comments với English Technical Terms
+```cpp
+// Chiến lược theo xu hướng sử dụng EMA crossover
+// Trend following strategy using EMA crossover
+class TrendFollowingStrategy
+{
+   // Kiểm tra điều kiện vào lệnh mua
+   // Check long entry conditions
+   bool CheckLongEntry()
+   {
+      // Điều kiện 1: EMA(12) cắt lên EMA(26)
+      // Condition 1: EMA(12) crosses above EMA(26)
+      bool emaCross = (fastEMA > slowEMA) && (prevFastEMA <= prevSlowEMA);
+      
+      // Điều kiện 2: RSI trong vùng 45-70
+      // Condition 2: RSI between 45-70
+      bool rsiOK = (rsi >= 45.0 && rsi <= 70.0);
+      
+      return emaCross && rsiOK;
+   }
+}
+```
+
+## File Templates
+
+### Main EA Structure
+Tham khảo file structure trong [CHIEN_LUOC_GIAO_DICH_TONG_HOP.md](mdc:CHIEN_LUOC_GIAO_DICH_TONG_HOP.md) để implement đúng logic từng module.
+
+Mỗi EA file phải có:
+- Header với metadata đầy đủ
+- Input parameters rõ ràng
+- OnInit(), OnTick(), OnDeinit() functions
+- Comprehensive logging trong mỗi function
+- Error handling cho mọi trading operations
+- Performance monitoring
+- Backtesting hooks
+
+Đảm bảo mọi entry/exit points đều được log chi tiết để dễ dàng analyze và optimize strategy performance.
